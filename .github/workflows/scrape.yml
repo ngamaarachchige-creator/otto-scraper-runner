@@ -1,0 +1,53 @@
+name: Run otto-deal-hunter scraper
+
+# This repo is public on purpose so its Actions runs are free and unlimited.
+# otto-deal-hunter itself is private, so its own Actions minutes would come
+# out of the account-wide shared free-tier pool (2,000 min/month) instead --
+# this is exactly what starved an unrelated project's tiny keep-alive ping
+# earlier. Moving the actual scrape workflow here avoids that entirely.
+#
+# This repo holds no scraper logic of its own -- the checkout step below
+# pulls otto-deal-hunter's real source using OTTO_REPO_TOKEN (a fine-grained
+# PAT scoped to just these two repos: Contents:Read on otto-deal-hunter so
+# this checkout works, Actions:Read-and-write on this repo so the Cloudflare
+# Worker cron (see otto-deal-hunter/cf-worker/) can dispatch this workflow).
+
+on:
+  schedule:
+    - cron: "17 * * * *"
+  workflow_dispatch:
+    inputs:
+      pages_per_source:
+        description: "Pages to scrape per make per source this run"
+        required: false
+        default: "20"
+      makes_per_run:
+        description: "How many makes to rotate through this run"
+        required: false
+        default: "3"
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: ngamaarachchige-creator/otto-deal-hunter
+          token: ${{ secrets.OTTO_REPO_TOKEN }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run scheduled scrape
+        env:
+          D1_PROXY_URL: ${{ secrets.D1_PROXY_URL }}
+          D1_PROXY_AUTH_TOKEN: ${{ secrets.D1_PROXY_AUTH_TOKEN }}
+          SCRAPE_PAGES_PER_SOURCE: ${{ github.event.inputs.pages_per_source || '20' }}
+          SCRAPE_MAKES_PER_RUN: ${{ github.event.inputs.makes_per_run || '3' }}
+          SCRAPE_INTERVAL_HOURS: "1"
+        run: python scripts/scheduled_scrape.py
